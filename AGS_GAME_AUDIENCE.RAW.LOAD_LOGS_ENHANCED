@@ -1,0 +1,35 @@
+create or replace task AGS_GAME_AUDIENCE.RAW.LOAD_LOGS_ENHANCED
+    warehouse = 'COMPUTE_WH'
+     SCHEDULE = '5 Minutes'
+    -- <session_parameter> = <value> [ , <session_parameter> = <value> ... ]
+    -- user_task_timeout_ms = <num>
+    -- copy grants
+    -- comment = '<comment>'
+    -- after <string>
+as
+MERGE INTO ags_game_audience.enhanced.LOGS_ENHANCED e
+USING (SELECT  logs.ip_address
+, logs.user_login AS GAMER_NAME
+, logs.user_event AS GAME_EVENT_NAME
+, logs.datetime_iso8601 AS GAME_EVENT_UTC
+, city
+, region
+, country
+, timezone AS GAMER_LTZ_NAME,
+convert_timezone('UTC',timezone,logs.datetime_iso8601) AS GAME_EVENT_LTZ,
+DAYNAME(convert_timezone('UTC',timezone,logs.datetime_iso8601)) as DOW_NAME,
+timeofday.TOD_NAME
+from ags_game_audience.raw.ed_cdc_stream logs
+JOIN IPINFO_IP_GEOLOCATION_TRAININGEDUCATION_SAMPLE.DEMO.LOCATION  loc 
+ON IPINFO_IP_GEOLOCATION_TRAININGEDUCATION_SAMPLE.PUBLIC.TO_JOIN_KEY(logs.ip_address) = loc.join_key
+AND IPINFO_IP_GEOLOCATION_TRAININGEDUCATION_SAMPLE.PUBLIC.TO_INT(logs.ip_address) 
+BETWEEN start_ip_int AND end_ip_int
+JOIN ags_game_audience.raw.time_of_day_lu AS timeofday
+on HOUR(GAME_EVENT_LTZ)=timeofday.hour) as r --we'll put our fancy select here
+ON r.GAMER_NAME = e.GAMER_NAME
+and r.GAME_EVENT_UTC = e.GAME_EVENT_UTC
+and r.GAME_EVENT_NAME = e.GAME_EVENT_NAME
+WHEN NOT MATCHED THEN
+insert (IP_ADDRESS, GAMER_NAME, GAME_EVENT_NAME, GAME_EVENT_UTC, CITY, REGION, COUNTRY, GAMER_LTZ_NAME, GAME_EVENT_LTZ, DOW_NAME, TOD_NAME) --list of columns
+values (IP_ADDRESS, GAMER_NAME, GAME_EVENT_NAME, GAME_EVENT_UTC, CITY, REGION, COUNTRY, GAMER_LTZ_NAME, GAME_EVENT_LTZ, DOW_NAME, TOD_NAME) --list of columns (but we can mark as coming from the r select)
+;
